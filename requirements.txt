@@ -1,6 +1,6 @@
-streamlit
-streamlit-webrtc
-opencv-python-headless
-torch
-mediapipe
-numpy
+streamlit==1.35.0
+streamlit-webrtc==0.47.5
+opencv-python-headless==4.9.0.80
+mediapipe==0.10.14
+torch==2.3.0 --extra-index-url https://download.pytorch.org/whl/cpu
+numpy==1.26.4
