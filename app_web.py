@@ -7,12 +7,12 @@ import os
 import mediapipe as mp
 from model import SignLSTM
 
-# 1. Page Configuration
+# 1. Page Configuration for Crisp Mobile Layout
 st.set_page_config(page_title="Sign2Sound Mobile", layout="centered")
 st.title("🤟 Sign2Sound Multimodal Mobile")
 st.write("Hold your signs steady in front of the camera to translate them to text.")
 
-# 2. Cached Model Loader
+# 2. Stable Model Loader
 @st.cache_resource
 def load_model():
     labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
@@ -25,16 +25,16 @@ def load_model():
 
 try:
     model, labels = load_model()
-    st.success("🤖 SignLSTM Model Loaded Successfully!")
+    st.success("🤖 SignLSTM Model Loaded Successfully on Python 3.12!")
 except Exception as e:
     st.error(f"Error loading model: {e}")
 
-# 3. WebRTC Configuration
+# 3. WebRTC ICE Configuration (Uses Google's Free Stun Network for Mobile Connections)
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class (Fallback API for Server Compatibility)
+# 4. Video Processing Class (Standard Python 3.12 Solutions API)
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
         self.mp_hands = mp.solutions.hands
@@ -48,8 +48,9 @@ class SignLanguageTransformer(VideoTransformerBase):
         self.sequence = []
 
     def transform(self, frame):
+        # Convert incoming browser stream to OpenCV format
         img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1) 
+        img = cv2.flip(img, 1) # Mirror reflection for intuitive usage
         
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = self.detector.process(img_rgb)
@@ -60,7 +61,7 @@ class SignLanguageTransformer(VideoTransformerBase):
             for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
                 hand_type = handedness.classification[0].label
                 
-                # Align perfectly with your Holistic dataset layout
+                # Strict 126-point spatial array mapping (Left=0-62, Right=63-125)
                 start_offset = 0 if hand_type == "Left" else 63
                 
                 temp_hand = np.zeros((21, 3))
@@ -69,14 +70,15 @@ class SignLanguageTransformer(VideoTransformerBase):
                     temp_hand[j, 1] = lm.y
                     temp_hand[j, 2] = lm.z
                 
-                # Draw skeleton points
+                # Draw skeleton landmarks over the video stream
                 self.mp_drawing.draw_landmarks(img, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
                 
-                # Normalize via wrist coordinate offsets
+                # Apply Your Dataset's Wrist Coordinate-Normalization
                 wrist = temp_hand[0, :].copy()
                 temp_hand -= wrist
                 features[start_offset : start_offset + 63] = temp_hand.flatten()
                 
+            # Manage running 30-frame calculation window queue
             self.sequence.append(features)
             self.sequence = self.sequence[-30:]
             
@@ -95,7 +97,7 @@ class SignLanguageTransformer(VideoTransformerBase):
             
         return img
 
-# 5. Render Web Camera Element
+# 5. Live Stream Visual Window Elements
 ctx = webrtc_streamer(
     key="sign-stream",
     video_transformer_factory=SignLanguageTransformer,
@@ -103,7 +105,7 @@ ctx = webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
 )
 
-# 6. Responsive UI Output Text Elements
+# 6. Responsive Output HUD Interface Elements
 st.write("---")
 st.subheader("Live Output:")
 prediction_placeholder = st.empty()
