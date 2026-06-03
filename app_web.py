@@ -7,19 +7,17 @@ import os
 import mediapipe as mp
 from model import SignLSTM
 
-# 1. Page Configuration for crisp mobile viewing
+# 1. Page Configuration
 st.set_page_config(page_title="Sign2Sound Mobile", layout="centered")
 st.title("🤟 Sign2Sound Multimodal Mobile")
 st.write("Hold your signs steady in front of the camera to translate them to text.")
 
-# 2. Cached Model Loader (Prevents the app from reloading the model on every frame)
+# 2. Cached Model Loader
 @st.cache_resource
 def load_model():
     labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
               'N', 'O', 'P', 'Q', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
     model = SignLSTM(num_classes=len(labels))
-    
-    # Expects 'isl_model.pth' to be right next to this script in your GitHub repo
     if os.path.exists("isl_model.pth"):
         model.load_state_dict(torch.load("isl_model.pth", map_location=torch.device("cpu")))
     model.eval()
@@ -31,70 +29,54 @@ try:
 except Exception as e:
     st.error(f"Error loading model: {e}")
 
-# 3. Global Configuration for WebRTC Connection (Uses Google's free public STUN server)
+# 3. WebRTC Configuration
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class (The Core Brain)
+# 4. Video Processing Class (Fallback API for Server Compatibility)
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
-        # Initialize MediaPipe Tasks Hand Landmarker
-        BaseOptions = mp.tasks.BaseOptions
-        HandLandmarker = mp.tasks.vision.HandLandmarker
-        HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
-        VisionRunningMode = mp.tasks.vision.RunningMode
-
-        # Download asset locally on the cloud server if it doesn't exist
-        self.model_path = "hand_landmarker.task"
-        if not os.path.exists(self.model_path):
-            import urllib.request
-            url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
-            urllib.request.urlretrieve(url, self.model_path)
-
-        options = HandLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=self.model_path),
-            running_mode=VisionRunningMode.IMAGE,
-            num_hands=2
+        self.mp_hands = mp.solutions.hands
+        self.detector = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
         )
-        self.detector = HandLandmarker.create_from_options(options)
+        self.mp_drawing = mp.solutions.drawing_utils
         self.sequence = []
 
     def transform(self, frame):
-        # Convert incoming WebRTC browser frame to standard OpenCV BGR array
         img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1) # Flip for intuitive mirror view
+        img = cv2.flip(img, 1) 
         
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
+        results = self.detector.process(img_rgb)
         
-        hands_result = self.detector.detect(mp_image)
         features = np.zeros(126)
         
-        if hands_result.hand_landmarks and hands_result.handedness:
-            for hand_landmarks, hand_info in zip(hands_result.hand_landmarks, hands_result.handedness):
-                hand_type = hand_info[0].category_name
+        if results.multi_hand_landmarks and results.multi_handedness:
+            for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+                hand_type = handedness.classification[0].label
                 
-                # Strict alignment matching our verified Holistic dataset structure
+                # Align perfectly with your Holistic dataset layout
                 start_offset = 0 if hand_type == "Left" else 63
                 
                 temp_hand = np.zeros((21, 3))
-                for j, lm in enumerate(hand_landmarks):
+                for j, lm in enumerate(hand_landmarks.landmark):
                     temp_hand[j, 0] = lm.x
                     temp_hand[j, 1] = lm.y
                     temp_hand[j, 2] = lm.z
-                    
-                    # Draw visual skeleton dots overlay on the web stream preview
-                    h, w, _ = img.shape
-                    cx, cy = int(lm.x * w), int(lm.y * h)
-                    cv2.circle(img, (cx, cy), 4, (0, 255, 0), -1)
                 
-                # Wrist Normalization Calculation
+                # Draw skeleton points
+                self.mp_drawing.draw_landmarks(img, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+                
+                # Normalize via wrist coordinate offsets
                 wrist = temp_hand[0, :].copy()
                 temp_hand -= wrist
                 features[start_offset : start_offset + 63] = temp_hand.flatten()
                 
-            # Manage running 30-frame window queue for the LSTM input layer
             self.sequence.append(features)
             self.sequence = self.sequence[-30:]
             
@@ -107,7 +89,6 @@ class SignLanguageTransformer(VideoTransformerBase):
                     
                     if max_prob.item() >= 0.75:
                         predicted_letter = labels[idx.item()]
-                        # Set a session state variable to display text outside the video thread
                         st.session_state["live_prediction"] = f"{predicted_letter} ({max_prob.item()*100:.0f}%)"
         else:
             self.sequence = []
@@ -122,7 +103,7 @@ ctx = webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
 )
 
-# 6. Responsive UI Output Text Elements Below Video Box
+# 6. Responsive UI Output Text Elements
 st.write("---")
 st.subheader("Live Output:")
 prediction_placeholder = st.empty()
