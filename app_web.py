@@ -1,16 +1,13 @@
 import streamlit as st
-# --- SERVER-SIDE GRAPHICS TRICK START ---
+# --- SERVER-SIDE GRAPHICS ENVIRONMENT OVERRIDES ---
 import os
-os.environ["QT_QPA_PLATFORM"] = "offscreen"  # Forces headless background processing
-# --- SERVER-SIDE GRAPHICS TRICK END ---
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 import cv2
 import torch
 import numpy as np
 import mediapipe as mp
-import mediapipe.python.solutions.hands as mp_hands
-import mediapipe.python.solutions.drawing_utils as mp_drawing
 from model import SignLSTM
 
 # 1. Page Configuration for Crisp Mobile Layout
@@ -40,10 +37,14 @@ RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class
+# 4. Video Processing Class (Safe Attribute Fetch Extraction)
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
-        self.detector = mp_hands.Hands(
+        # Safely extract submodules using getattr to handle server mapping anomalies
+        self.solutions_hands = getattr(mp, "solutions").hands
+        self.solutions_drawing = getattr(mp, "solutions").drawing_utils
+        
+        self.detector = self.solutions_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
             min_detection_confidence=0.5,
@@ -74,7 +75,7 @@ class SignLanguageTransformer(VideoTransformerBase):
                     temp_hand[j, 2] = lm.z
                 
                 # Draw skeleton landmarks over the video stream
-                mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                self.solutions_drawing.draw_landmarks(img, hand_landmarks, self.solutions_hands.HAND_CONNECTIONS)
                 
                 # Apply Your Dataset's Wrist Coordinate-Normalization
                 wrist = temp_hand[0, :].copy()
