@@ -1,23 +1,24 @@
 import streamlit as st
-# --- SERVER-SIDE ENVIRONMENT OVERRIDES ---
 import os
+
+# Force headless environment variables before anything imports
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 import cv2
 import torch
 import numpy as np
-# Directly importing the low-level framework tracking bindings to bypass mp.solutions
-from mediapipe.python.solutions import hands as mp_hands
-from mediapipe.python.solutions import drawing_utils as mp_drawing
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
+
+# Direct absolute imports to completely bypass the mp.solutions attribute bug
+import mediapipe.python.solutions.hands as mp_hands
+import mediapipe.python.solutions.drawing_utils as mp_drawing
 from model import SignLSTM
 
-# 1. Page Configuration for Crisp Mobile Layout
 st.set_page_config(page_title="Sign2Sound Mobile", layout="centered")
 st.title("🤟 Sign2Sound Multimodal Mobile")
-st.write("Hold your signs steady in front of the camera to translate them to text.")
+st.write("Hold your hand signs steady in front of the camera stream.")
 
-# 2. Stable Model Loader
+# Stable Model Loader
 @st.cache_resource
 def load_model():
     labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
@@ -30,19 +31,18 @@ def load_model():
 
 try:
     model, labels = load_model()
-    st.success("🤖 SignLSTM Model Loaded Successfully on Python 3.12!")
+    st.success("🤖 SignLSTM Model Weights Loaded Successfully!")
 except Exception as e:
-    st.error(f"Error loading model: {e}")
+    st.error(f"Error loading model layout: {e}")
 
-# 3. WebRTC ICE Configuration (Uses Google's Free Stun Network for Mobile Connections)
+# Universal ICE Server setup so it connects properly over mobile data/ambient Wi-Fi
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class (Utilizing Direct Framework Bindings)
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
-        # Initializing via direct un-wrapped class reference references
+        # Initialize the tracker directly from the explicit class path
         self.detector = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
@@ -53,7 +53,10 @@ class SignLanguageTransformer(VideoTransformerBase):
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1) # Mirror reflection
+        img = cv2.flip(img, 1) # Natural mirror flip
+        
+        # Privacy Mode: Create a pure black canvas matching the webcam frame size
+        black_canvas = np.zeros_like(img)
         
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = self.detector.process(img_rgb)
@@ -63,8 +66,6 @@ class SignLanguageTransformer(VideoTransformerBase):
         if results.multi_hand_landmarks and results.multi_handedness:
             for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
                 hand_type = handedness.classification[0].label
-                
-                # Strict 126-point spatial array mapping (Left=0-62, Right=63-125)
                 start_offset = 0 if hand_type == "Left" else 63
                 
                 temp_hand = np.zeros((21, 3))
@@ -73,16 +74,16 @@ class SignLanguageTransformer(VideoTransformerBase):
                     temp_hand[j, 1] = lm.y
                     temp_hand[j, 2] = lm.z
                 
-                # Draw skeleton landmarks over the video stream using framework utils
-                mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                # Draw the skeleton dots onto the privacy black canvas ONLY
+                mp_drawing.draw_landmarks(black_canvas, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 
-                # Apply Your Dataset's Wrist Coordinate-Normalization
+                # Wrist tracking normalization calculation logic
                 wrist = temp_hand[0, :].copy()
                 temp_hand -= wrist
                 features[start_offset : start_offset + 63] = temp_hand.flatten()
                 
             self.sequence.append(features)
-            self.sequence = self.sequence[-30:]
+            self.sequence = self.sequence[-30:] # Target sequence frame cap
             
             if len(self.sequence) == 30:
                 with torch.no_grad():
@@ -92,14 +93,13 @@ class SignLanguageTransformer(VideoTransformerBase):
                     max_prob, idx = torch.max(prob, dim=1)
                     
                     if max_prob.item() >= 0.75:
-                        predicted_letter = labels[idx.item()]
-                        st.session_state["live_prediction"] = f"{predicted_letter} ({max_prob.item()*100:.0f}%)"
+                        st.session_state["live_prediction"] = f"{labels[idx.item()]} ({max_prob.item()*100:.0f}%)"
         else:
             self.sequence = []
             
-        return img
+        return black_canvas
 
-# 5. Live Stream Visual Window Elements
+# Live Stream view element setup
 ctx = webrtc_streamer(
     key="sign-stream",
     video_transformer_factory=SignLanguageTransformer,
@@ -107,12 +107,11 @@ ctx = webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
 )
 
-# 6. Responsive Output HUD Interface Elements
 st.write("---")
-st.subheader("Live Output:")
+st.subheader("Predicted Output:")
 prediction_placeholder = st.empty()
 
 if "live_prediction" in st.session_state:
     prediction_placeholder.metric(label="Predicted Sign Language Letter", value=st.session_state["live_prediction"])
 else:
-    prediction_placeholder.info("Start the camera stream above and place your hands in view.")
+    prediction_placeholder.info("Start the WebRTC camera stream above to display text.")
