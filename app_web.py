@@ -1,10 +1,13 @@
 import streamlit as st
+# --- SERVER-SIDE GRAPHICS TRICK START ---
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"  # Forces headless background processing
+# --- SERVER-SIDE GRAPHICS TRICK END ---
+
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 import cv2
 import torch
 import numpy as np
-import os
-# Explicit sub-module imports to bypass the Linux attribute mapping bug
 import mediapipe as mp
 import mediapipe.python.solutions.hands as mp_hands
 import mediapipe.python.solutions.drawing_utils as mp_drawing
@@ -37,10 +40,9 @@ RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class (Using explicit sub-module imports directly)
+# 4. Video Processing Class
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
-        # Referencing the explicitly imported modules directly to bypass mp.solutions
         self.detector = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
@@ -50,9 +52,8 @@ class SignLanguageTransformer(VideoTransformerBase):
         self.sequence = []
 
     def transform(self, frame):
-        # Convert incoming browser stream to OpenCV format
         img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1) # Mirror reflection for intuitive usage
+        img = cv2.flip(img, 1) # Mirror reflection
         
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = self.detector.process(img_rgb)
@@ -72,7 +73,7 @@ class SignLanguageTransformer(VideoTransformerBase):
                     temp_hand[j, 1] = lm.y
                     temp_hand[j, 2] = lm.z
                 
-                # Draw skeleton landmarks over the video stream using the explicit module
+                # Draw skeleton landmarks over the video stream
                 mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 
                 # Apply Your Dataset's Wrist Coordinate-Normalization
@@ -80,7 +81,6 @@ class SignLanguageTransformer(VideoTransformerBase):
                 temp_hand -= wrist
                 features[start_offset : start_offset + 63] = temp_hand.flatten()
                 
-            # Manage running 30-frame calculation window queue
             self.sequence.append(features)
             self.sequence = self.sequence[-30:]
             
