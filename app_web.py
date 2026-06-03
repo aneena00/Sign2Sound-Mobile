@@ -4,7 +4,10 @@ import cv2
 import torch
 import numpy as np
 import os
+# Explicit sub-module imports to bypass the Linux attribute mapping bug
 import mediapipe as mp
+import mediapipe.python.solutions.hands as mp_hands
+import mediapipe.python.solutions.drawing_utils as mp_drawing
 from model import SignLSTM
 
 # 1. Page Configuration for Crisp Mobile Layout
@@ -34,17 +37,16 @@ RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# 4. Video Processing Class (Standard Python 3.12 Solutions API)
+# 4. Video Processing Class (Using explicit sub-module imports directly)
 class SignLanguageTransformer(VideoTransformerBase):
     def __init__(self):
-        self.mp_hands = mp.solutions.hands
-        self.detector = self.mp_hands.Hands(
+        # Referencing the explicitly imported modules directly to bypass mp.solutions
+        self.detector = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
-        self.mp_drawing = mp.solutions.drawing_utils
         self.sequence = []
 
     def transform(self, frame):
@@ -70,8 +72,8 @@ class SignLanguageTransformer(VideoTransformerBase):
                     temp_hand[j, 1] = lm.y
                     temp_hand[j, 2] = lm.z
                 
-                # Draw skeleton landmarks over the video stream
-                self.mp_drawing.draw_landmarks(img, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+                # Draw skeleton landmarks over the video stream using the explicit module
+                mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 
                 # Apply Your Dataset's Wrist Coordinate-Normalization
                 wrist = temp_hand[0, :].copy()
